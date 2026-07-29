@@ -1,1 +1,127 @@
-# calendar
+# Self-hosted Calendar
+
+A small **self-hosted** Google Calendar app with:
+
+- **Web UI** — create / list / rename / delete events
+- **REST API** — `/api/events` CRUD
+- **MCP endpoint** — `/mcp` for Cursor Desktop & Cloud Agents
+- **Messaging webhooks** — `/hooks/message` and Slack `/hooks/slack`
+
+Your Google tokens stay on **your** server (`./data` or Docker volume).
+
+## Quick start (Docker)
+
+1. Create a Google Cloud **Web** OAuth client:
+   - Enable [Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com)
+   - Credentials → OAuth client ID → **Web application**
+   - Authorized redirect URI: `http://localhost:3847/auth/google/callback`  
+     (or `https://your.domain/auth/google/callback` in production)
+   - Add yourself as an OAuth **test user** while the app is in testing
+
+2. Configure env:
+
+```bash
+cp .env.example .env
+# edit GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET, WEBHOOK_SECRET, BASE_URL
+```
+
+3. Run:
+
+```bash
+docker compose up --build
+```
+
+4. Open [http://localhost:3847](http://localhost:3847) → **Connect Google**.
+
+### Local Node (no Docker)
+
+```bash
+cp .env.example .env
+npm install
+npm run dev
+```
+
+## Cursor MCP (point at your instance)
+
+Add to Cursor MCP settings or `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "self-hosted-calendar": {
+      "url": "https://YOUR_PUBLIC_URL/mcp"
+    }
+  }
+}
+```
+
+For Cloud Agents / Android ([cursor.com/agents](https://cursor.com/agents)), add the same HTTP MCP URL in the **MCP** dropdown. Your server must be reachable from the internet (Tailscale, Cloudflare Tunnel, ngrok, VPS, etc.).
+
+Then ask:
+
+- What’s on my calendar this week?
+- Create a meeting tomorrow at 3 PM titled Design sync
+- Delete event &lt;id&gt;
+
+## REST API
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/status` | Connection status |
+| GET | `/api/events` | List (`timeMin`, `timeMax`, `q`) |
+| POST | `/api/events` | Create `{ title, start, end, ... }` |
+| PATCH | `/api/events/:id` | Update |
+| DELETE | `/api/events/:id` | Delete |
+
+## Messaging app hooks
+
+### Generic webhook
+
+```bash
+curl -X POST "$BASE_URL/hooks/message" \
+  -H "Content-Type: application/json" \
+  -H "x-webhook-secret: $WEBHOOK_SECRET" \
+  -d '{"text":"list today"}'
+```
+
+Commands:
+
+```text
+list today|tomorrow|week
+create tomorrow 15:00 30m standup
+update <eventId> title New title
+delete <eventId>
+help
+```
+
+### Slack slash command
+
+1. Create a Slack slash command (e.g. `/cal`)
+2. Request URL: `https://YOUR_PUBLIC_URL/hooks/slack`
+3. Put the same value as `WEBHOOK_SECRET` in Slack’s verification token field, **or** send `secret` / header `x-webhook-secret`
+
+Example: `/cal create tomorrow 15:00 30m standup`
+
+## Production notes
+
+- Set a real `BASE_URL` (https) matching your OAuth redirect URI
+- Change `SESSION_SECRET` and `WEBHOOK_SECRET`
+- Put the app behind HTTPS (Caddy, nginx, Cloudflare)
+- Persist `/data` (Docker volume already does this)
+- Do not commit `.env` or `data/store.json`
+
+## Repo layout
+
+```text
+src/           server (API, OAuth, MCP, messaging)
+public/        web UI
+Dockerfile
+docker-compose.yml
+.env.example
+```
+
+## Cost
+
+- **This app**: free (self-hosted; you pay for your VPS/electricity)
+- **Google Calendar API**: free within normal personal quotas
+- **Cursor agents** (if you use MCP from Cursor): your Cursor plan / model usage

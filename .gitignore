@@ -1,0 +1,21 @@
+# Dependencies / build
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+
+# Runtime data (tokens live here — never commit)
+data/
+*.sqlite
+*.sqlite-journal
+
+# Google OAuth secrets
+gcp-oauth.keys.json
+**/gcp-oauth.keys.json
+credentials.json
+token.json
+
+# OS / editor
+.DS_Store
+*.log
