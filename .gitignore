@@ -1,0 +1,13 @@
+# Google OAuth / calendar secrets — never commit
+gcp-oauth.keys.json
+**/gcp-oauth.keys.json
+credentials.json
+token.json
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+*.log
+node_modules/
