@@ -163,6 +163,15 @@ main {
   gap: 1.25rem;
 }
 
+.tasks-layout {
+  margin-top: 1.25rem;
+}
+
+.task-card.done h3 {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+
 @media (max-width: 860px) {
   .layout {
     grid-template-columns: 1fr;

@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { calendarService } from "./calendar-service.js";
+import { tasksService } from "./tasks-service.js";
 import {
   HELP_TEXT,
   parseMessageCommand,
@@ -78,18 +79,36 @@ async function runCommand(text: string) {
       await calendarService.deleteEvent(cmd.id);
       return `Deleted event ${cmd.id}`;
     }
+    case "todo_list": {
+      const { tasks } = await tasksService.listTasks();
+      if (!tasks.length) return "No open tasks.";
+      return tasks
+        .map((t) => `• ${t.title}${t.due ? ` (due ${t.due})` : ""}\n  id: ${t.id}`)
+        .join("\n\n");
+    }
+    case "todo_add": {
+      const task = await tasksService.createTask({ title: cmd.title });
+      return `Task created: ${task.title}\nid: ${task.id}`;
+    }
+    case "todo_done": {
+      const task = await tasksService.completeTask(cmd.id);
+      return `Completed: ${task.title}`;
+    }
+    case "todo_delete": {
+      await tasksService.deleteTask(cmd.id);
+      return `Deleted task ${cmd.id}`;
+    }
   }
 }
 
 export const messagingRouter = Router();
 
-/** Generic messaging webhook */
 messagingRouter.post("/message", async (req, res) => {
   try {
     if (!checkSecret(req)) return unauthorized(res);
     if (!store.isConnected()) {
       return res.status(400).json({
-        error: "Google Calendar not connected. Open /auth/google first.",
+        error: "Google not connected. Open /auth/google first.",
       });
     }
     const text =
@@ -107,14 +126,8 @@ messagingRouter.post("/message", async (req, res) => {
   }
 });
 
-/**
- * Slack slash command / Events-compatible endpoint.
- * Configure Slack slash command Request URL to:
- *   POST {BASE_URL}/hooks/slack
- */
 messagingRouter.post("/slack", async (req, res) => {
   try {
-    // Slack URL verification
     if (req.body?.type === "url_verification") {
       return res.json({ challenge: req.body.challenge });
     }
@@ -127,7 +140,7 @@ messagingRouter.post("/slack", async (req, res) => {
     if (!store.isConnected()) {
       return res.json({
         response_type: "ephemeral",
-        text: "Google Calendar not connected. Open the app /auth/google first.",
+        text: "Google not connected. Open the app /auth/google first.",
       });
     }
 

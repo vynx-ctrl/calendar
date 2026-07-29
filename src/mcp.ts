@@ -3,12 +3,13 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { calendarService } from "./calendar-service.js";
+import { tasksService } from "./tasks-service.js";
 import { store } from "./store.js";
 
 function requireConnected() {
   if (!store.isConnected()) {
     throw new Error(
-      "Google Calendar is not connected. Open the web UI and click Connect Google.",
+      "Google is not connected. Open the web UI and click Connect Google (reconnect after Tasks was added).",
     );
   }
 }
@@ -16,7 +17,7 @@ function requireConnected() {
 export function createMcpServer() {
   const server = new McpServer({
     name: "self-hosted-calendar",
-    version: "1.0.0",
+    version: "1.1.0",
   });
 
   server.tool(
@@ -107,8 +108,129 @@ export function createMcpServer() {
   );
 
   server.tool(
+    "list_tasklists",
+    "List Google Tasks lists",
+    {},
+    async () => {
+      requireConnected();
+      const taskLists = await tasksService.listTaskLists();
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ taskLists }, null, 2) },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    "list_tasks",
+    "List Google Tasks (todo items)",
+    {
+      taskListId: z.string().optional().describe("Task list id (default: primary)"),
+      showCompleted: z.boolean().optional(),
+      maxResults: z.number().int().positive().max(100).optional(),
+    },
+    async (args) => {
+      requireConnected();
+      const result = await tasksService.listTasks(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    },
+  );
+
+  server.tool(
+    "get_task",
+    "Get a Google Task by id",
+    {
+      taskId: z.string(),
+      taskListId: z.string().optional(),
+    },
+    async ({ taskId, taskListId }) => {
+      requireConnected();
+      const task = await tasksService.getTask(taskId, taskListId);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ task }, null, 2) }],
+      };
+    },
+  );
+
+  server.tool(
+    "create_task",
+    "Create a Google Task (todo item)",
+    {
+      title: z.string(),
+      notes: z.string().optional(),
+      due: z
+        .string()
+        .optional()
+        .describe("Due date/time RFC3339, e.g. 2026-08-14T18:00:00.000Z"),
+      taskListId: z.string().optional(),
+    },
+    async (args) => {
+      requireConnected();
+      const task = await tasksService.createTask(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ task }, null, 2) }],
+      };
+    },
+  );
+
+  server.tool(
+    "update_task",
+    "Update a Google Task",
+    {
+      taskId: z.string(),
+      title: z.string().optional(),
+      notes: z.string().optional(),
+      due: z.string().optional(),
+      status: z.enum(["needsAction", "completed"]).optional(),
+      taskListId: z.string().optional(),
+    },
+    async ({ taskId, ...patch }) => {
+      requireConnected();
+      const task = await tasksService.updateTask(taskId, patch);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ task }, null, 2) }],
+      };
+    },
+  );
+
+  server.tool(
+    "complete_task",
+    "Mark a Google Task as completed",
+    {
+      taskId: z.string(),
+      taskListId: z.string().optional(),
+    },
+    async ({ taskId, taskListId }) => {
+      requireConnected();
+      const task = await tasksService.completeTask(taskId, taskListId);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ task }, null, 2) }],
+      };
+    },
+  );
+
+  server.tool(
+    "delete_task",
+    "Delete a Google Task",
+    {
+      taskId: z.string(),
+      taskListId: z.string().optional(),
+    },
+    async ({ taskId, taskListId }) => {
+      requireConnected();
+      const result = await tasksService.deleteTask(taskId, taskListId);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    },
+  );
+
+  server.tool(
     "calendar_status",
-    "Show whether Google Calendar is connected",
+    "Show whether Google is connected (Calendar + Tasks)",
     {},
     async () => {
       const tokens = store.getTokens();
@@ -120,6 +242,7 @@ export function createMcpServer() {
               {
                 connected: store.isConnected(),
                 email: tokens?.email ?? null,
+                scope: tokens?.scope ?? null,
               },
               null,
               2,
@@ -133,10 +256,6 @@ export function createMcpServer() {
   return server;
 }
 
-/**
- * Stateless Streamable HTTP MCP handler (one server+transport per request).
- * Compatible with Cursor Cloud Agents HTTP MCP.
- */
 export async function handleMcpPost(req: Request, res: Response) {
   const server = createMcpServer();
   const transport = new StreamableHTTPServerTransport({

@@ -1,13 +1,15 @@
 # Self-hosted Calendar
 
-A small **self-hosted** Google Calendar app with:
+A small **self-hosted** Google Calendar + **Google Tasks** app with:
 
-- **Web UI** — create / list / rename / delete events
-- **REST API** — `/api/events` CRUD
-- **MCP endpoint** — `/mcp` for Cursor Desktop & Cloud Agents
+- **Web UI** — calendar events and todo tasks
+- **REST API** — `/api/events` and `/api/tasks` CRUD
+- **MCP endpoint** — `/mcp` for Cursor Desktop & Cloud Agents (calendar + tasks tools)
 - **Messaging webhooks** — `/hooks/message` and Slack `/hooks/slack`
 
 Your Google tokens stay on **your** server (`./data` or Docker volume).
+
+After pulling an update that adds Tasks, **Disconnect → Connect Google** again so the new `tasks` OAuth scope is granted. Also enable **Google Tasks API** in Cloud Console.
 
 ## Quick start (Docker)
 
@@ -72,6 +74,16 @@ Then ask:
 | POST | `/api/events` | Create `{ title, start, end, ... }` |
 | PATCH | `/api/events/:id` | Update |
 | DELETE | `/api/events/:id` | Delete |
+| GET | `/api/tasklists` | List Google Task lists |
+| GET | `/api/tasks` | List tasks |
+| POST | `/api/tasks` | Create `{ title, notes?, due? }` |
+| PATCH | `/api/tasks/:id` | Update |
+| POST | `/api/tasks/:id/complete` | Mark complete |
+| DELETE | `/api/tasks/:id` | Delete |
+
+### MCP task tools
+
+`list_tasklists`, `list_tasks`, `get_task`, `create_task`, `update_task`, `complete_task`, `delete_task` (plus existing calendar tools).
 
 ## Messaging app hooks
 
@@ -91,6 +103,10 @@ list today|tomorrow|week
 create tomorrow 15:00 30m standup
 update <eventId> title New title
 delete <eventId>
+todo list
+todo add Buy milk
+todo done <taskId>
+todo delete <taskId>
 help
 ```
 

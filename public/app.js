@@ -2,8 +2,11 @@ const statusEl = document.getElementById("status");
 const connectPanel = document.getElementById("connectPanel");
 const workspace = document.getElementById("workspace");
 const eventsEl = document.getElementById("events");
+const tasksEl = document.getElementById("tasks");
 const form = document.getElementById("createForm");
+const taskForm = document.getElementById("taskForm");
 const formError = document.getElementById("formError");
+const taskError = document.getElementById("taskError");
 const mcpUrl = document.getElementById("mcpUrl");
 
 mcpUrl.textContent = `${location.origin}/mcp`;
@@ -46,13 +49,21 @@ function formatWhen(value) {
   });
 }
 
+function escapeHtml(str) {
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 async function refreshStatus() {
   const data = await api("/api/status");
   if (data.connected) {
     statusEl.textContent = data.email ? `Connected as ${data.email}` : "Connected";
     connectPanel.classList.add("hidden");
     workspace.classList.remove("hidden");
-    await loadEvents();
+    await Promise.all([loadEvents(), loadTasks()]);
   } else {
     statusEl.textContent = "Not connected";
     connectPanel.classList.remove("hidden");
@@ -61,7 +72,7 @@ async function refreshStatus() {
 }
 
 async function loadEvents() {
-  eventsEl.innerHTML = `<div class="empty">Loading…</div>`;
+  eventsEl.innerHTML = `<div class="empty">Loading events…</div>`;
   try {
     const { events } = await api("/api/events");
     if (!events.length) {
@@ -87,12 +98,30 @@ async function loadEvents() {
   }
 }
 
-function escapeHtml(str) {
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+async function loadTasks() {
+  tasksEl.innerHTML = `<div class="empty">Loading tasks…</div>`;
+  try {
+    const { tasks } = await api("/api/tasks");
+    if (!tasks.length) {
+      tasksEl.innerHTML = `<div class="empty">No open tasks. Add one on the left.</div>`;
+      return;
+    }
+    tasksEl.innerHTML = tasks
+      .map(
+        (t) => `
+      <article class="event-card task-card" data-id="${t.id}">
+        <h3>${escapeHtml(t.title)}</h3>
+        <p class="event-meta">${t.due ? `Due ${escapeHtml(formatWhen(t.due))}` : "No due date"}${t.notes ? ` · ${escapeHtml(t.notes)}` : ""}</p>
+        <div class="event-actions">
+          <button class="btn" data-action="complete" type="button">Complete</button>
+          <button class="btn danger" data-action="delete-task" type="button">Delete</button>
+        </div>
+      </article>`,
+      )
+      .join("");
+  } catch (err) {
+    tasksEl.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+  }
 }
 
 form.addEventListener("submit", async (ev) => {
@@ -115,6 +144,26 @@ form.addEventListener("submit", async (ev) => {
   } catch (err) {
     formError.hidden = false;
     formError.textContent = err.message;
+  }
+});
+
+taskForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  taskError.hidden = true;
+  const fd = new FormData(taskForm);
+  try {
+    await api("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({
+        title: fd.get("title"),
+        notes: fd.get("notes") || undefined,
+      }),
+    });
+    taskForm.reset();
+    await loadTasks();
+  } catch (err) {
+    taskError.hidden = false;
+    taskError.textContent = err.message;
   }
 });
 
@@ -142,7 +191,31 @@ eventsEl.addEventListener("click", async (ev) => {
   }
 });
 
-document.getElementById("refreshBtn").addEventListener("click", loadEvents);
+tasksEl.addEventListener("click", async (ev) => {
+  const btn = ev.target.closest("button[data-action]");
+  if (!btn) return;
+  const card = btn.closest(".task-card");
+  const id = card?.dataset.id;
+  if (!id) return;
+
+  if (btn.dataset.action === "complete") {
+    await api(`/api/tasks/${encodeURIComponent(id)}/complete`, {
+      method: "POST",
+      body: "{}",
+    });
+    await loadTasks();
+  }
+
+  if (btn.dataset.action === "delete-task") {
+    if (!confirm("Delete this task?")) return;
+    await api(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await loadTasks();
+  }
+});
+
+document.getElementById("refreshBtn").addEventListener("click", async () => {
+  await Promise.all([loadEvents(), loadTasks()]);
+});
 document.getElementById("logoutBtn").addEventListener("click", async () => {
   await api("/auth/logout", { method: "POST", body: "{}" });
   await refreshStatus();

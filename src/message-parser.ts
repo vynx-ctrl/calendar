@@ -1,11 +1,13 @@
 /**
  * Tiny natural-ish command parser for messaging webhooks.
- * Examples:
+ * Calendar:
  *   create standup tomorrow 15:00 30m
  *   list today
- *   list week
- *   update <id> title New title
- *   delete <id>
+ * Tasks:
+ *   todo list
+ *   todo add Buy milk
+ *   todo done <id>
+ *   todo delete <id>
  */
 
 export type ParsedCommand =
@@ -18,6 +20,10 @@ export type ParsedCommand =
     }
   | { action: "update"; id: string; title?: string; start?: Date; end?: Date }
   | { action: "delete"; id: string }
+  | { action: "todo_list" }
+  | { action: "todo_add"; title: string }
+  | { action: "todo_done"; id: string }
+  | { action: "todo_delete"; id: string }
   | { action: "help" };
 
 function startOfDay(d: Date) {
@@ -36,14 +42,12 @@ function parseWhen(token: string, now = new Date()): Date | null {
   const lower = token.toLowerCase();
   if (lower === "today") return startOfDay(now);
   if (lower === "tomorrow") return startOfDay(addDays(now, 1));
-  // HH:mm today/default
   const hm = /^(\d{1,2}):(\d{2})$/.exec(token);
   if (hm) {
     const d = new Date(now);
     d.setHours(Number(hm[1]), Number(hm[2]), 0, 0);
     return d;
   }
-  // ISO-ish
   const parsed = Date.parse(token);
   if (!Number.isNaN(parsed)) return new Date(parsed);
   return null;
@@ -59,13 +63,39 @@ function parseDuration(token: string): number | null {
 }
 
 export function parseMessageCommand(text: string): ParsedCommand {
-  const raw = text.trim().replace(/^\/(?:cal|calendar)\s+/i, "");
+  const raw = text
+    .trim()
+    .replace(/^\/(?:cal|calendar|todo|tasks)\s+/i, "");
   const parts = raw.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return { action: "help" };
 
   const verb = parts[0].toLowerCase();
 
   if (verb === "help" || verb === "?") return { action: "help" };
+
+  if (verb === "todo" || verb === "task" || verb === "tasks") {
+    const sub = (parts[1] ?? "list").toLowerCase();
+    if (sub === "list" || sub === "ls" || sub === "show") {
+      return { action: "todo_list" };
+    }
+    if (sub === "add" || sub === "create" || sub === "new") {
+      const title = parts.slice(2).join(" ").trim();
+      if (!title) return { action: "help" };
+      return { action: "todo_add", title };
+    }
+    if (sub === "done" || sub === "complete" || sub === "finish") {
+      if (!parts[2]) return { action: "help" };
+      return { action: "todo_done", id: parts[2] };
+    }
+    if (sub === "delete" || sub === "remove") {
+      if (!parts[2]) return { action: "help" };
+      return { action: "todo_delete", id: parts[2] };
+    }
+    // todo Buy milk
+    const title = parts.slice(1).join(" ").trim();
+    if (title) return { action: "todo_add", title };
+    return { action: "todo_list" };
+  }
 
   if (verb === "list" || verb === "ls" || verb === "show") {
     const range = (parts[1] ?? "week").toLowerCase();
@@ -85,11 +115,9 @@ export function parseMessageCommand(text: string): ParsedCommand {
     const id = parts[1];
     const rest = parts.slice(2);
     const out: ParsedCommand = { action: "update", id };
-    // update <id> title ...
     if (rest[0]?.toLowerCase() === "title") {
       return { action: "update", id, title: rest.slice(1).join(" ") };
     }
-    // update <id> tomorrow 15:00 30m
     const when = rest[0] ? parseWhen(rest[0]) : null;
     const time = rest[1] ? parseWhen(rest[1], when ?? new Date()) : null;
     const start = time ?? when;
@@ -103,8 +131,6 @@ export function parseMessageCommand(text: string): ParsedCommand {
   }
 
   if (verb === "create" || verb === "add" || verb === "new") {
-    // create [when] [HH:mm] [duration] title...
-    // create tomorrow 15:00 30m standup
     let i = 1;
     let day = new Date();
     const maybeDay = parts[i] ? parseWhen(parts[i]) : null;
@@ -134,10 +160,16 @@ export function parseMessageCommand(text: string): ParsedCommand {
   return { action: "help" };
 }
 
-export const HELP_TEXT = `Calendar commands:
+export const HELP_TEXT = `Calendar:
 • list today|tomorrow|week
 • create tomorrow 15:00 30m standup
 • update <eventId> title New title
-• update <eventId> tomorrow 16:00 30m
 • delete <eventId>
+
+Tasks:
+• todo list
+• todo add Buy milk
+• todo done <taskId>
+• todo delete <taskId>
+
 • help`;

@@ -27,10 +27,11 @@
 
     <main>
       <section class="hero-panel" id="connectPanel">
-        <h2>Connect Google Calendar</h2>
+        <h2>Connect Google</h2>
         <p>
-          Authorize once. Then use this UI, the REST API, Cursor MCP at
-          <code>/mcp</code>, or messaging webhooks at <code>/hooks</code>.
+          Authorize once for <strong>Calendar</strong> and <strong>Tasks</strong>.
+          Then use this UI, REST API, Cursor MCP at <code>/mcp</code>, or messaging
+          webhooks at <code>/hooks</code>.
         </p>
         <a class="btn primary" href="/auth/google">Connect Google</a>
       </section>
@@ -38,8 +39,8 @@
       <section class="workspace hidden" id="workspace">
         <div class="toolbar">
           <div>
-            <h2>Upcoming</h2>
-            <p class="muted" id="rangeLabel">Next 7 days</p>
+            <h2>Calendar &amp; Tasks</h2>
+            <p class="muted" id="rangeLabel">Events (7 days) and open todos</p>
           </div>
           <div class="actions">
             <button class="btn" id="refreshBtn" type="button">Refresh</button>
@@ -68,11 +69,29 @@
               Description
               <textarea name="description" rows="3" placeholder="Optional notes"></textarea>
             </label>
-            <button class="btn primary" type="submit">Create</button>
+            <button class="btn primary" type="submit">Create event</button>
             <p class="error" id="formError" hidden></p>
           </form>
 
           <div class="events" id="events"></div>
+        </div>
+
+        <div class="layout tasks-layout">
+          <form class="composer" id="taskForm">
+            <h3>New task</h3>
+            <label>
+              Title
+              <input name="title" required placeholder="Buy milk" />
+            </label>
+            <label>
+              Notes
+              <textarea name="notes" rows="2" placeholder="Optional"></textarea>
+            </label>
+            <button class="btn primary" type="submit">Add task</button>
+            <p class="error" id="taskError" hidden></p>
+          </form>
+
+          <div class="events" id="tasks"></div>
         </div>
       </section>
     </main>
