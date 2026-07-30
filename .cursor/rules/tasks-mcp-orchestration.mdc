@@ -1,0 +1,29 @@
+---
+description: Use Google Tasks as the hub to orchestrate other MCP servers efficiently
+alwaysApply: true
+---
+
+# Tasks-first MCP orchestration
+
+When the Calendar/Tasks MCP is available:
+
+1. **Start with tasks** — call `orchestrate_from_tasks` (or `list_tasks`) before other MCPs.
+2. **Follow the playbook** — use each task's `mcps:` list; do not call unrelated MCP servers.
+3. **Batch** — if `batch: true`, combine related tool calls in one turn instead of chatty round-trips.
+4. **Write back** — after progress, `update_task` notes (progress + `## orchestration` block) or `complete_task`.
+5. **Calendar only when useful** — schedule focus/deadlines with calendar tools; don't list the whole week unless needed.
+6. **Value rate** — minimize MCP round-trips; prefer one orchestrated burst over many status checks.
+
+## Task notes format
+
+```text
+Progress: ...
+
+## orchestration
+goal: ...
+mcps: calendar, cursor-cloud, other-mcp-name
+batch: true
+next:
+- step one
+- step two
+```

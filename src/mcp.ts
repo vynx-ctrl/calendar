@@ -17,7 +17,7 @@ function requireConnected() {
 export function createMcpServer() {
   const server = new McpServer({
     name: "self-hosted-calendar",
-    version: "1.1.0",
+    version: "1.2.0",
   });
 
   server.tool(
@@ -224,6 +224,22 @@ export function createMcpServer() {
       const result = await tasksService.deleteTask(taskId, taskListId);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    },
+  );
+
+  server.tool(
+    "orchestrate_from_tasks",
+    "Read open Google Tasks and return an MCP orchestration playbook (which other MCPs to call, batched next steps). Prefer this before calling other MCP servers.",
+    {
+      taskListId: z.string().optional(),
+      showCompleted: z.boolean().optional(),
+    },
+    async (args) => {
+      requireConnected();
+      const plan = await tasksService.orchestrateFromTasks(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(plan, null, 2) }],
       };
     },
   );

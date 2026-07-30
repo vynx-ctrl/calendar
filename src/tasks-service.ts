@@ -1,5 +1,9 @@
 import { google, type tasks_v1 } from "googleapis";
 import { getAuthedClient } from "./google-auth.js";
+import {
+  buildOrchestrationPlaybook,
+  parseOrchestrationNotes,
+} from "./orchestration.js";
 
 export type TaskInput = {
   title: string;
@@ -15,10 +19,13 @@ async function tasksClient() {
 }
 
 function serializeTask(task: tasks_v1.Schema$Task, taskListId: string) {
+  const id = task.id ?? "";
+  const title = task.title ?? "(no title)";
+  const notes = task.notes ?? "";
   return {
-    id: task.id,
-    title: task.title ?? "(no title)",
-    notes: task.notes ?? "",
+    id,
+    title,
+    notes,
     status: task.status ?? "needsAction",
     due: task.due ?? "",
     completed: task.completed ?? "",
@@ -26,6 +33,7 @@ function serializeTask(task: tasks_v1.Schema$Task, taskListId: string) {
     taskListId,
     parent: task.parent ?? "",
     position: task.position ?? "",
+    orchestration: parseOrchestrationNotes(id, title, notes),
   };
 }
 
@@ -130,5 +138,22 @@ export const tasksService = {
       task: taskId,
     });
     return { deleted: true, id: taskId, taskListId: listId };
+  },
+
+  async orchestrateFromTasks(opts: {
+    taskListId?: string;
+    showCompleted?: boolean;
+  } = {}) {
+    const { taskListId, tasks } = await this.listTasks({
+      taskListId: opts.taskListId,
+      showCompleted: opts.showCompleted ?? false,
+    });
+    const plans = tasks.map((t) =>
+      parseOrchestrationNotes(t.id ?? "", t.title, t.notes ?? ""),
+    );
+    return {
+      taskListId,
+      ...buildOrchestrationPlaybook(plans),
+    };
   },
 };

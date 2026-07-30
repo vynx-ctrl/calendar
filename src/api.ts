@@ -84,6 +84,19 @@ apiRouter.delete("/events/:id", async (req, res) => {
   }
 });
 
+apiRouter.get("/orchestration", async (req, res) => {
+  try {
+    const plan = await tasksService.orchestrateFromTasks({
+      taskListId:
+        typeof req.query.taskListId === "string" ? req.query.taskListId : undefined,
+      showCompleted: req.query.showCompleted === "1" || req.query.showCompleted === "true",
+    });
+    res.json(plan);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 apiRouter.get("/tasklists", async (_req, res) => {
   try {
     const taskLists = await tasksService.listTaskLists();

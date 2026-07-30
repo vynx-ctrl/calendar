@@ -83,7 +83,28 @@ Then ask:
 
 ### MCP task tools
 
-`list_tasklists`, `list_tasks`, `get_task`, `create_task`, `update_task`, `complete_task`, `delete_task` (plus existing calendar tools).
+`list_tasklists`, `list_tasks`, `get_task`, `create_task`, `update_task`, `complete_task`, `delete_task`, **`orchestrate_from_tasks`** (plus existing calendar tools).
+
+### Orchestrate other MCPs from the todo list
+
+Put an `## orchestration` block in task notes:
+
+```text
+Progress: 90% complete
+
+## orchestration
+goal: finish finval normalisation/validation
+mcps: calendar, cursor-cloud
+batch: true
+next:
+- validate remaining 10%
+- mark task complete
+- calendar: block 2h ship window
+```
+
+Then ask Cursor: **Orchestrate my todo list across MCPs.**
+
+The agent should call `orchestrate_from_tasks` first, then only the listed MCPs, in batches.
 
 ## Messaging app hooks
 
