@@ -23,7 +23,27 @@ export const config = {
   },
   webhookSecret: process.env.WEBHOOK_SECRET ?? "dev-webhook-secret",
   dataDir: process.env.DATA_DIR ?? join(rootDir, "data"),
+  mcp: {
+    /** consolidated = 2 tools (cal, todo). classic = many tools. */
+    mode: (process.env.MCP_MODE ?? "consolidated").toLowerCase() === "classic"
+      ? ("classic" as const)
+      : ("consolidated" as const),
+    /** Pretty JSON wastes tokens; default compact one-line. */
+    pretty: process.env.MCP_PRETTY === "1" || process.env.MCP_PRETTY === "true",
+    /** Comma list for classic mode only. Empty = all classic tools. */
+    enabledTools: parseEnabledTools(process.env.ENABLED_TOOLS),
+  },
 };
+
+function parseEnabledTools(raw?: string): Set<string> | null {
+  if (!raw?.trim()) return null;
+  return new Set(
+    raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+}
 
 export function googleConfigured(): boolean {
   return Boolean(config.google.clientId && config.google.clientSecret);

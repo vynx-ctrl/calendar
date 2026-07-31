@@ -65,6 +65,32 @@ Then ask:
 - Create a meeting tomorrow at 3 PM titled Design sync
 - Delete event &lt;id&gt;
 
+## MCP token efficiency
+
+Cursor pays tokens for **tool schemas** (every exposed tool) and **tool results**.
+
+Defaults (recommended):
+
+```env
+MCP_MODE=consolidated   # only 2 tools: cal + todo
+# MCP_PRETTY unset      # compact one-line JSON, slim fields (t/s/e/id)
+```
+
+| Mode | Tools exposed | Best for |
+|------|---------------|----------|
+| `consolidated` (default) | `cal`, `todo` | Daily use, lowest schema tokens |
+| `classic` | many named tools | Compatibility / explicit tool names |
+
+Classic filter example:
+
+```env
+MCP_MODE=classic
+ENABLED_TOOLS=list_events,create_event,list_tasks,create_task,complete_task
+```
+
+Also helps: ask for narrow ranges (`limit`), avoid “dump everything”, keep Finval MCP as a separate server so calendar tools aren’t always loaded with it.
+
+After deploy, restart Cursor / re-enable the MCP so it picks up the new 2-tool schema.
 ## REST API
 
 | Method | Path | Purpose |

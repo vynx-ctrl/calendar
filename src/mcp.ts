@@ -5,269 +5,395 @@ import { z } from "zod";
 import { calendarService } from "./calendar-service.js";
 import { tasksService } from "./tasks-service.js";
 import { store } from "./store.js";
+import { config } from "./config.js";
+import { mcpText, slimEvent, slimTask } from "./mcp-compact.js";
 
 function requireConnected() {
   if (!store.isConnected()) {
-    throw new Error(
-      "Google is not connected. Open the web UI and click Connect Google (reconnect after Tasks was added).",
+    throw new Error("Google not connected. Open UI → Connect Google.");
+  }
+}
+
+function ok(data: unknown) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: mcpText(data, config.mcp.pretty),
+      },
+    ],
+  };
+}
+
+function registerConsolidatedTools(server: McpServer) {
+  server.tool(
+    "cal",
+    "Calendar CRUD. action=list|get|create|update|delete|status",
+    {
+      action: z.enum(["list", "get", "create", "update", "delete", "status"]),
+      id: z.string().optional(),
+      title: z.string().optional(),
+      start: z.string().optional(),
+      end: z.string().optional(),
+      description: z.string().optional(),
+      location: z.string().optional(),
+      timeMin: z.string().optional(),
+      timeMax: z.string().optional(),
+      q: z.string().optional(),
+      limit: z.number().int().positive().max(50).optional(),
+      timeZone: z.string().optional(),
+    },
+    async (args) => {
+      if (args.action === "status") {
+        const tokens = store.getTokens();
+        return ok({
+          connected: store.isConnected(),
+          email: tokens?.email ?? null,
+        });
+      }
+      requireConnected();
+      switch (args.action) {
+        case "list": {
+          const events = await calendarService.listEvents({
+            timeMin: args.timeMin,
+            timeMax: args.timeMax,
+            query: args.q,
+            maxResults: args.limit ?? 20,
+          });
+          return ok({
+            n: events.length,
+            events: events.map(slimEvent),
+          });
+        }
+        case "get": {
+          if (!args.id) throw new Error("id required");
+          return ok(slimEvent(await calendarService.getEvent(args.id)));
+        }
+        case "create": {
+          if (!args.title || !args.start || !args.end) {
+            throw new Error("title,start,end required");
+          }
+          return ok(
+            slimEvent(
+              await calendarService.createEvent({
+                title: args.title,
+                start: args.start,
+                end: args.end,
+                description: args.description,
+                location: args.location,
+                timeZone: args.timeZone,
+              }),
+            ),
+          );
+        }
+        case "update": {
+          if (!args.id) throw new Error("id required");
+          return ok(
+            slimEvent(
+              await calendarService.updateEvent(args.id, {
+                title: args.title,
+                start: args.start,
+                end: args.end,
+                description: args.description,
+                location: args.location,
+                timeZone: args.timeZone,
+              }),
+            ),
+          );
+        }
+        case "delete": {
+          if (!args.id) throw new Error("id required");
+          return ok(await calendarService.deleteEvent(args.id));
+        }
+      }
+    },
+  );
+
+  server.tool(
+    "todo",
+    "Google Tasks CRUD. action=list|get|create|update|complete|delete|lists",
+    {
+      action: z.enum([
+        "list",
+        "get",
+        "create",
+        "update",
+        "complete",
+        "delete",
+        "lists",
+      ]),
+      id: z.string().optional(),
+      title: z.string().optional(),
+      notes: z.string().optional(),
+      due: z.string().optional(),
+      taskListId: z.string().optional(),
+      showCompleted: z.boolean().optional(),
+      limit: z.number().int().positive().max(50).optional(),
+    },
+    async (args) => {
+      requireConnected();
+      switch (args.action) {
+        case "lists":
+          return ok({ lists: await tasksService.listTaskLists() });
+        case "list": {
+          const result = await tasksService.listTasks({
+            taskListId: args.taskListId,
+            showCompleted: args.showCompleted ?? false,
+            maxResults: args.limit ?? 30,
+          });
+          return ok({
+            n: result.tasks.length,
+            tasks: result.tasks.map(slimTask),
+          });
+        }
+        case "get": {
+          if (!args.id) throw new Error("id required");
+          return ok(
+            slimTask(await tasksService.getTask(args.id, args.taskListId)),
+          );
+        }
+        case "create": {
+          if (!args.title) throw new Error("title required");
+          return ok(
+            slimTask(
+              await tasksService.createTask({
+                title: args.title,
+                notes: args.notes,
+                due: args.due,
+                taskListId: args.taskListId,
+              }),
+            ),
+          );
+        }
+        case "update": {
+          if (!args.id) throw new Error("id required");
+          return ok(
+            slimTask(
+              await tasksService.updateTask(args.id, {
+                title: args.title,
+                notes: args.notes,
+                due: args.due,
+                taskListId: args.taskListId,
+              }),
+            ),
+          );
+        }
+        case "complete": {
+          if (!args.id) throw new Error("id required");
+          return ok(
+            slimTask(
+              await tasksService.completeTask(args.id, args.taskListId),
+            ),
+          );
+        }
+        case "delete": {
+          if (!args.id) throw new Error("id required");
+          return ok(await tasksService.deleteTask(args.id, args.taskListId));
+        }
+      }
+    },
+  );
+}
+
+function registerClassicTools(server: McpServer) {
+  const enabled = config.mcp.enabledTools;
+
+  const allow = (name: string) => !enabled || enabled.has(name);
+
+  if (allow("calendar_status")) {
+    server.tool("calendar_status", "Connection status", {}, async () => {
+      const tokens = store.getTokens();
+      return ok({
+        connected: store.isConnected(),
+        email: tokens?.email ?? null,
+      });
+    });
+  }
+
+  if (allow("list_events")) {
+    server.tool(
+      "list_events",
+      "List events",
+      {
+        timeMin: z.string().optional(),
+        timeMax: z.string().optional(),
+        query: z.string().optional(),
+        maxResults: z.number().int().positive().max(50).optional(),
+      },
+      async (args) => {
+        requireConnected();
+        const events = await calendarService.listEvents({
+          ...args,
+          maxResults: args.maxResults ?? 20,
+        });
+        return ok({ n: events.length, events: events.map(slimEvent) });
+      },
     );
+  }
+
+  if (allow("get_event")) {
+    server.tool("get_event", "Get event", { eventId: z.string() }, async ({ eventId }) => {
+      requireConnected();
+      return ok(slimEvent(await calendarService.getEvent(eventId)));
+    });
+  }
+
+  if (allow("create_event")) {
+    server.tool(
+      "create_event",
+      "Create event",
+      {
+        title: z.string(),
+        start: z.string(),
+        end: z.string(),
+        description: z.string().optional(),
+        location: z.string().optional(),
+        timeZone: z.string().optional(),
+      },
+      async (args) => {
+        requireConnected();
+        return ok(slimEvent(await calendarService.createEvent(args)));
+      },
+    );
+  }
+
+  if (allow("update_event")) {
+    server.tool(
+      "update_event",
+      "Update event",
+      {
+        eventId: z.string(),
+        title: z.string().optional(),
+        start: z.string().optional(),
+        end: z.string().optional(),
+        description: z.string().optional(),
+        location: z.string().optional(),
+        timeZone: z.string().optional(),
+      },
+      async ({ eventId, ...patch }) => {
+        requireConnected();
+        return ok(slimEvent(await calendarService.updateEvent(eventId, patch)));
+      },
+    );
+  }
+
+  if (allow("delete_event")) {
+    server.tool("delete_event", "Delete event", { eventId: z.string() }, async ({ eventId }) => {
+      requireConnected();
+      return ok(await calendarService.deleteEvent(eventId));
+    });
+  }
+
+  if (allow("list_tasks")) {
+    server.tool(
+      "list_tasks",
+      "List tasks",
+      {
+        taskListId: z.string().optional(),
+        showCompleted: z.boolean().optional(),
+        maxResults: z.number().int().positive().max(50).optional(),
+      },
+      async (args) => {
+        requireConnected();
+        const result = await tasksService.listTasks({
+          ...args,
+          maxResults: args.maxResults ?? 30,
+        });
+        return ok({ n: result.tasks.length, tasks: result.tasks.map(slimTask) });
+      },
+    );
+  }
+
+  if (allow("create_task")) {
+    server.tool(
+      "create_task",
+      "Create task",
+      {
+        title: z.string(),
+        notes: z.string().optional(),
+        due: z.string().optional(),
+        taskListId: z.string().optional(),
+      },
+      async (args) => {
+        requireConnected();
+        return ok(slimTask(await tasksService.createTask(args)));
+      },
+    );
+  }
+
+  if (allow("complete_task")) {
+    server.tool(
+      "complete_task",
+      "Complete task",
+      { taskId: z.string(), taskListId: z.string().optional() },
+      async ({ taskId, taskListId }) => {
+        requireConnected();
+        return ok(slimTask(await tasksService.completeTask(taskId, taskListId)));
+      },
+    );
+  }
+
+  if (allow("update_task")) {
+    server.tool(
+      "update_task",
+      "Update task",
+      {
+        taskId: z.string(),
+        title: z.string().optional(),
+        notes: z.string().optional(),
+        due: z.string().optional(),
+        taskListId: z.string().optional(),
+      },
+      async ({ taskId, ...patch }) => {
+        requireConnected();
+        return ok(slimTask(await tasksService.updateTask(taskId, patch)));
+      },
+    );
+  }
+
+  if (allow("delete_task")) {
+    server.tool(
+      "delete_task",
+      "Delete task",
+      { taskId: z.string(), taskListId: z.string().optional() },
+      async ({ taskId, taskListId }) => {
+        requireConnected();
+        return ok(await tasksService.deleteTask(taskId, taskListId));
+      },
+    );
+  }
+
+  if (allow("get_task")) {
+    server.tool(
+      "get_task",
+      "Get task",
+      { taskId: z.string(), taskListId: z.string().optional() },
+      async ({ taskId, taskListId }) => {
+        requireConnected();
+        return ok(slimTask(await tasksService.getTask(taskId, taskListId)));
+      },
+    );
+  }
+
+  if (allow("list_tasklists")) {
+    server.tool("list_tasklists", "List task lists", {}, async () => {
+      requireConnected();
+      return ok({ lists: await tasksService.listTaskLists() });
+    });
   }
 }
 
 export function createMcpServer() {
   const server = new McpServer({
     name: "self-hosted-calendar",
-    version: "1.2.0",
+    version: "1.3.0",
   });
 
-  server.tool(
-    "list_events",
-    "List calendar events in a time range",
-    {
-      timeMin: z.string().optional().describe("ISO start (default: now)"),
-      timeMax: z.string().optional().describe("ISO end (default: +7 days)"),
-      query: z.string().optional().describe("Optional text search"),
-      maxResults: z.number().int().positive().max(100).optional(),
-    },
-    async (args) => {
-      requireConnected();
-      const events = await calendarService.listEvents(args);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ events }, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "get_event",
-    "Get a calendar event by id",
-    { eventId: z.string() },
-    async ({ eventId }) => {
-      requireConnected();
-      const event = await calendarService.getEvent(eventId);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ event }, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "create_event",
-    "Create a calendar event",
-    {
-      title: z.string(),
-      start: z.string().describe("ISO datetime or YYYY-MM-DD"),
-      end: z.string().describe("ISO datetime or YYYY-MM-DD"),
-      description: z.string().optional(),
-      location: z.string().optional(),
-      attendees: z.array(z.string()).optional(),
-      timeZone: z.string().optional(),
-    },
-    async (args) => {
-      requireConnected();
-      const event = await calendarService.createEvent(args);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ event }, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "update_event",
-    "Update an existing calendar event",
-    {
-      eventId: z.string(),
-      title: z.string().optional(),
-      start: z.string().optional(),
-      end: z.string().optional(),
-      description: z.string().optional(),
-      location: z.string().optional(),
-      attendees: z.array(z.string()).optional(),
-      timeZone: z.string().optional(),
-    },
-    async ({ eventId, ...patch }) => {
-      requireConnected();
-      const event = await calendarService.updateEvent(eventId, patch);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ event }, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "delete_event",
-    "Delete a calendar event by id",
-    { eventId: z.string() },
-    async ({ eventId }) => {
-      requireConnected();
-      const result = await calendarService.deleteEvent(eventId);
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "list_tasklists",
-    "List Google Tasks lists",
-    {},
-    async () => {
-      requireConnected();
-      const taskLists = await tasksService.listTaskLists();
-      return {
-        content: [
-          { type: "text", text: JSON.stringify({ taskLists }, null, 2) },
-        ],
-      };
-    },
-  );
-
-  server.tool(
-    "list_tasks",
-    "List Google Tasks (todo items)",
-    {
-      taskListId: z.string().optional().describe("Task list id (default: primary)"),
-      showCompleted: z.boolean().optional(),
-      maxResults: z.number().int().positive().max(100).optional(),
-    },
-    async (args) => {
-      requireConnected();
-      const result = await tasksService.listTasks(args);
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "get_task",
-    "Get a Google Task by id",
-    {
-      taskId: z.string(),
-      taskListId: z.string().optional(),
-    },
-    async ({ taskId, taskListId }) => {
-      requireConnected();
-      const task = await tasksService.getTask(taskId, taskListId);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ task }, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "create_task",
-    "Create a Google Task (todo item)",
-    {
-      title: z.string(),
-      notes: z.string().optional(),
-      due: z
-        .string()
-        .optional()
-        .describe("Due date/time RFC3339, e.g. 2026-08-14T18:00:00.000Z"),
-      taskListId: z.string().optional(),
-    },
-    async (args) => {
-      requireConnected();
-      const task = await tasksService.createTask(args);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ task }, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "update_task",
-    "Update a Google Task",
-    {
-      taskId: z.string(),
-      title: z.string().optional(),
-      notes: z.string().optional(),
-      due: z.string().optional(),
-      status: z.enum(["needsAction", "completed"]).optional(),
-      taskListId: z.string().optional(),
-    },
-    async ({ taskId, ...patch }) => {
-      requireConnected();
-      const task = await tasksService.updateTask(taskId, patch);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ task }, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "complete_task",
-    "Mark a Google Task as completed",
-    {
-      taskId: z.string(),
-      taskListId: z.string().optional(),
-    },
-    async ({ taskId, taskListId }) => {
-      requireConnected();
-      const task = await tasksService.completeTask(taskId, taskListId);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ task }, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "delete_task",
-    "Delete a Google Task",
-    {
-      taskId: z.string(),
-      taskListId: z.string().optional(),
-    },
-    async ({ taskId, taskListId }) => {
-      requireConnected();
-      const result = await tasksService.deleteTask(taskId, taskListId);
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "orchestrate_from_tasks",
-    "Read open Google Tasks and return an MCP orchestration playbook (which other MCPs to call, batched next steps). Prefer this before calling other MCP servers.",
-    {
-      taskListId: z.string().optional(),
-      showCompleted: z.boolean().optional(),
-    },
-    async (args) => {
-      requireConnected();
-      const plan = await tasksService.orchestrateFromTasks(args);
-      return {
-        content: [{ type: "text", text: JSON.stringify(plan, null, 2) }],
-      };
-    },
-  );
-
-  server.tool(
-    "calendar_status",
-    "Show whether Google is connected (Calendar + Tasks)",
-    {},
-    async () => {
-      const tokens = store.getTokens();
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
-              {
-                connected: store.isConnected(),
-                email: tokens?.email ?? null,
-                scope: tokens?.scope ?? null,
-              },
-              null,
-              2,
-            ),
-          },
-        ],
-      };
-    },
-  );
+  if (config.mcp.mode === "classic") {
+    registerClassicTools(server);
+  } else {
+    registerConsolidatedTools(server);
+  }
 
   return server;
 }
@@ -287,7 +413,6 @@ export async function handleMcpPost(req: Request, res: Response) {
 
 export async function handleMcpGet(_req: Request, res: Response) {
   res.status(405).json({
-    error:
-      "This MCP endpoint expects POST (Streamable HTTP). Configure Cursor with url pointing here.",
+    error: "POST Streamable HTTP MCP only",
   });
 }
