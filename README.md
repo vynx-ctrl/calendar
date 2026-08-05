@@ -1,108 +1,190 @@
-# calendar
+# Self-hosted Calendar
 
-Google Calendar CRUD via **Cursor MCP** (no custom calendar app required).
+A small **self-hosted** Google Calendar + **Google Tasks** app with:
 
-## What you get
+- **Web UI** — calendar events and todo tasks
+- **REST API** — `/api/events` and `/api/tasks` CRUD
+- **MCP endpoint** — `/mcp` for Cursor Desktop & Cloud Agents (calendar + tasks tools)
+- **Messaging webhooks** — `/hooks/message` and Slack `/hooks/slack`
 
-Once MCP is connected, ask Cursor things like:
+Your Google tokens stay on **your** server (`./data` or Docker volume).
 
-- What’s on my calendar tomorrow?
-- Create a meeting with Alex at 3 PM.
-- Move my dentist appointment to Friday.
-- Delete the standup on Monday.
+After pulling an update that adds Tasks, **Disconnect → Connect Google** again so the new `tasks` OAuth scope is granted. Also enable **Google Tasks API** in Cloud Console.
 
-Tools exposed by the open-source server include: list / create / update / delete events, search, free/busy, and invite responses.
+## Quick start (Docker)
 
-## Option A — Self-hosted (recommended for local control)
+1. Create a Google Cloud **Web** OAuth client:
+   - Enable [Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com)
+   - Credentials → OAuth client ID → **Web application**
+   - Authorized redirect URI: `http://localhost:3847/auth/google/callback`  
+     (or `https://your.domain/auth/google/callback` in production)
+   - Add yourself as an OAuth **test user** while the app is in testing
 
-Uses [`@cocal/google-calendar-mcp`](https://github.com/nspady/google-calendar-mcp) (nspady). Credentials stay on your machine.
+2. Configure env:
 
-### 1. Google Cloud
+```bash
+cp .env.example .env
+# edit GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET, WEBHOOK_SECRET, BASE_URL
+```
 
-1. Open [Google Cloud Console](https://console.cloud.google.com)
-2. Create or select a project
-3. Enable [Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com)
-4. **Credentials** → Create credentials → **OAuth client ID** → type **Desktop app**
-5. Download the JSON and save it somewhere **outside** this repo, e.g. `~/secrets/gcp-oauth.keys.json`
-6. OAuth consent screen → add your Google email as a **test user**
+3. Run:
 
-### 2. Cursor MCP config
+```bash
+docker compose up --build
+```
 
-**Cursor → Settings → MCP → Add new global MCP server**, or edit `~/.cursor/mcp.json`:
+4. Open [http://localhost:3847](http://localhost:3847) → **Connect Google**.
+
+### Local Node (no Docker)
+
+```bash
+cp .env.example .env
+npm install
+npm run dev
+```
+
+## Cursor MCP (point at your instance)
+
+Add to Cursor MCP settings or `~/.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "google-calendar": {
-      "command": "npx",
-      "args": ["-y", "@cocal/google-calendar-mcp"],
-      "env": {
-        "GOOGLE_OAUTH_CREDENTIALS": "/ABSOLUTE/PATH/TO/gcp-oauth.keys.json"
-      }
+    "self-hosted-calendar": {
+      "url": "https://YOUR_PUBLIC_URL/mcp"
     }
   }
 }
 ```
 
-Or copy the project example:
+For Cloud Agents / Android ([cursor.com/agents](https://cursor.com/agents)), add the same HTTP MCP URL in the **MCP** dropdown. Your server must be reachable from the internet (Tailscale, Cloudflare Tunnel, ngrok, VPS, etc.).
 
-```bash
-cp .cursor/mcp.json.example ~/.cursor/mcp.json
-# then edit the GOOGLE_OAUTH_CREDENTIALS path
+Then ask:
+
+- What’s on my calendar this week?
+- Create a meeting tomorrow at 3 PM titled Design sync
+- Delete event &lt;id&gt;
+
+## MCP token efficiency
+
+Cursor pays tokens for **tool schemas** (every exposed tool) and **tool results**.
+
+Defaults (recommended):
+
+```env
+MCP_MODE=consolidated   # only 2 tools: cal + todo
+# MCP_PRETTY unset      # compact one-line JSON, slim fields (t/s/e/id)
 ```
 
-### 3. Authenticate
+| Mode | Tools exposed | Best for |
+|------|---------------|----------|
+| `consolidated` (default) | `cal`, `todo` | Daily use, lowest schema tokens |
+| `classic` | many named tools | Compatibility / explicit tool names |
 
-Reload Cursor (`Developer: Reload Window`). In Agent chat:
+Classic filter example:
+
+```env
+MCP_MODE=classic
+ENABLED_TOOLS=list_events,create_event,list_tasks,create_task,complete_task
+```
+
+Also helps: ask for narrow ranges (`limit`), avoid “dump everything”, keep Finval MCP as a separate server so calendar tools aren’t always loaded with it.
+
+After deploy, restart Cursor / re-enable the MCP so it picks up the new 2-tool schema.
+## REST API
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/status` | Connection status |
+| GET | `/api/events` | List (`timeMin`, `timeMax`, `q`) |
+| POST | `/api/events` | Create `{ title, start, end, ... }` |
+| PATCH | `/api/events/:id` | Update |
+| DELETE | `/api/events/:id` | Delete |
+| GET | `/api/tasklists` | List Google Task lists |
+| GET | `/api/tasks` | List tasks |
+| POST | `/api/tasks` | Create `{ title, notes?, due? }` |
+| PATCH | `/api/tasks/:id` | Update |
+| POST | `/api/tasks/:id/complete` | Mark complete |
+| DELETE | `/api/tasks/:id` | Delete |
+
+### MCP task tools
+
+`list_tasklists`, `list_tasks`, `get_task`, `create_task`, `update_task`, `complete_task`, `delete_task`, **`orchestrate_from_tasks`** (plus existing calendar tools).
+
+### Orchestrate other MCPs from the todo list
+
+Put an `## orchestration` block in task notes:
 
 ```text
-Authenticate with Google Calendar
+Progress: 90% complete
+
+## orchestration
+goal: finish finval normalisation/validation
+mcps: calendar, cursor-cloud
+batch: true
+next:
+- validate remaining 10%
+- mark task complete
+- calendar: block 2h ship window
 ```
 
-Complete the browser OAuth flow. Then try a CRUD prompt.
+Then ask Cursor: **Orchestrate my todo list across MCPs.**
 
-**Manual re-auth** (if tokens expire in test mode ~7 days):
+The agent should call `orchestrate_from_tasks` first, then only the listed MCPs, in batches.
+
+## Messaging app hooks
+
+### Generic webhook
 
 ```bash
-export GOOGLE_OAUTH_CREDENTIALS="/ABSOLUTE/PATH/TO/gcp-oauth.keys.json"
-npx -y @cocal/google-calendar-mcp auth
+curl -X POST "$BASE_URL/hooks/message" \
+  -H "Content-Type: application/json" \
+  -H "x-webhook-secret: $WEBHOOK_SECRET" \
+  -d '{"text":"list today"}'
 ```
 
-To avoid weekly expiry: OAuth consent screen → **Publish app** (unverified apps still work for your own account).
+Commands:
 
-## Option B — Hosted CalendarMCP (fastest)
-
-1. Get an API key at [calendarmcp.ai/app](https://calendarmcp.ai/app) and connect Google
-2. Add to `~/.cursor/mcp.json` (see `.cursor/mcp.hosted.example.json`):
-
-```json
-{
-  "mcpServers": {
-    "calendar": {
-      "url": "https://calendarmcp.ai/api/mcp",
-      "headers": {
-        "Authorization": "Bearer cmcp_YOUR_API_KEY"
-      }
-    }
-  }
-}
+```text
+list today|tomorrow|week
+create tomorrow 15:00 30m standup
+update <eventId> title New title
+delete <eventId>
+todo list
+todo add Buy milk
+todo done <taskId>
+todo delete <taskId>
+help
 ```
 
-3. Reload Cursor and test with the same prompts as above
+### Slack slash command
 
-## Project-scoped config
+1. Create a Slack slash command (e.g. `/cal`)
+2. Request URL: `https://YOUR_PUBLIC_URL/hooks/slack`
+3. Put the same value as `WEBHOOK_SECRET` in Slack’s verification token field, **or** send `secret` / header `x-webhook-secret`
 
-To limit the server to this repo only, copy an example into `.cursor/mcp.json` (do **not** commit real keys or absolute home paths with secrets):
+Example: `/cal create tomorrow 15:00 30m standup`
 
-```bash
-cp .cursor/mcp.json.example .cursor/mcp.json
+## Production notes
+
+- Set a real `BASE_URL` (https) matching your OAuth redirect URI
+- Change `SESSION_SECRET` and `WEBHOOK_SECRET`
+- Put the app behind HTTPS (Caddy, nginx, Cloudflare)
+- Persist `/data` (Docker volume already does this)
+- Do not commit `.env` or `data/store.json`
+
+## Repo layout
+
+```text
+src/           server (API, OAuth, MCP, messaging)
+public/        web UI
+Dockerfile
+docker-compose.yml
+.env.example
 ```
 
-## Cloud Agents note
+## Cost
 
-This GitHub Cloud Agent environment does not have Google Calendar MCP attached by default. Configure MCP in **Cursor Desktop** (or your cloud environment’s MCP settings), authorize Google, then calendar CRUD works in Agent chat.
-
-## Security
-
-- Never commit `gcp-oauth.keys.json`, API keys, or tokens (see `.gitignore`)
-- Prefer absolute paths outside the repo for OAuth files
+- **This app**: free (self-hosted; you pay for your VPS/electricity)
+- **Google Calendar API**: free within normal personal quotas
+- **Cursor agents** (if you use MCP from Cursor): your Cursor plan / model usage

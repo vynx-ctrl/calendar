@@ -1,24 +1,10 @@
-<<<<<<< HEAD
-# Google OAuth / calendar secrets — never commit
-gcp-oauth.keys.json
-**/gcp-oauth.keys.json
-credentials.json
-token.json
-=======
 # Dependencies / build
 node_modules/
 dist/
->>>>>>> origin/main
 .env
 .env.*
 !.env.example
 
-<<<<<<< HEAD
-# OS / editor
-.DS_Store
-*.log
-node_modules/
-=======
 # Runtime data (tokens live here — never commit)
 data/
 *.sqlite
@@ -33,4 +19,3 @@ token.json
 # OS / editor
 .DS_Store
 *.log
->>>>>>> origin/main
