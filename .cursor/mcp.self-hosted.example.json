@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "self-hosted-calendar": {
+      "url": "https://YOUR_PUBLIC_URL/mcp"
+    }
+  }
+}
